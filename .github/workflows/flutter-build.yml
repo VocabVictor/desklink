@@ -1161,7 +1161,7 @@ jobs:
       - name: Cache external downloads
         uses: actions/cache@v4
         with:
-          path: /opt/artifacts/ci-cache
+          path: /opt/ci-cache
           key: external-sciter-linux-${{ matrix.job.target }}-${{ env.SCITER_NASM_DEBVERSION }}-${{ env.SCITER_ARMV7_CMAKE_VERSION }}
           restore-keys: |
             external-sciter-linux-${{ matrix.job.target }}-
@@ -1177,7 +1177,7 @@ jobs:
             ls -l "${PWD}"
           dockerRunArgs: |
             --volume "${PWD}:/workspace"
-            --volume "/opt/artifacts:/opt/artifacts"
+            --volume "/opt/ci-cache:/opt/ci-cache"
           shell: /bin/bash
           install: |
             apt-get update
@@ -1249,9 +1249,9 @@ jobs:
             # rust
             pushd /opt
             # do not use rustup, because memory overflow in qemu
-            mkdir -p /opt/artifacts/ci-cache
-            [[ -f /opt/artifacts/ci-cache/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz ]] || wget --output-document /opt/artifacts/ci-cache/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz https://static.rust-lang.org/dist/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz
-            cp /opt/artifacts/ci-cache/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz rust.tar.gz
+            mkdir -p /opt/ci-cache
+            [[ -f /opt/ci-cache/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz ]] || wget --output-document /opt/ci-cache/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz https://static.rust-lang.org/dist/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz
+            cp /opt/ci-cache/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz rust.tar.gz
             tar -zxvf rust.tar.gz > /dev/null && rm rust.tar.gz
             pushd rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}
             ./install.sh
@@ -1259,8 +1259,8 @@ jobs:
             rm -rf rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}
             popd
             # install newer nasm for aom
-            [[ -f /opt/artifacts/ci-cache/nasm_${{ env.SCITER_NASM_DEBVERSION }}_${{ matrix.job.deb_arch }}.deb ]] || wget --output-document /opt/artifacts/ci-cache/nasm_${{ env.SCITER_NASM_DEBVERSION }}_${{ matrix.job.deb_arch }}.deb "http://ftp.us.debian.org/debian/pool/main/n/nasm/nasm_${{ env.SCITER_NASM_DEBVERSION }}_${{ matrix.job.deb_arch }}.deb"
-            cp /opt/artifacts/ci-cache/nasm_${{ env.SCITER_NASM_DEBVERSION }}_${{ matrix.job.deb_arch }}.deb nasm.deb
+            [[ -f /opt/ci-cache/nasm_${{ env.SCITER_NASM_DEBVERSION }}_${{ matrix.job.deb_arch }}.deb ]] || wget --output-document /opt/ci-cache/nasm_${{ env.SCITER_NASM_DEBVERSION }}_${{ matrix.job.deb_arch }}.deb "http://ftp.us.debian.org/debian/pool/main/n/nasm/nasm_${{ env.SCITER_NASM_DEBVERSION }}_${{ matrix.job.deb_arch }}.deb"
+            cp /opt/ci-cache/nasm_${{ env.SCITER_NASM_DEBVERSION }}_${{ matrix.job.deb_arch }}.deb nasm.deb
             dpkg -i nasm.deb
             rm -f nasm.deb
           run: |
@@ -1302,8 +1302,8 @@ jobs:
             # make debian package
             mkdir -p ./Release
             mv ./target/release/rustdesk ./Release/rustdesk
-            [[ -f /opt/artifacts/ci-cache/libsciter-gtk-${{ matrix.job.sciter_arch }}.so ]] || wget -O /opt/artifacts/ci-cache/libsciter-gtk-${{ matrix.job.sciter_arch }}.so https://github.com/c-smile/sciter-sdk/raw/master/bin.lnx/${{ matrix.job.sciter_arch }}/libsciter-gtk.so
-            cp /opt/artifacts/ci-cache/libsciter-gtk-${{ matrix.job.sciter_arch }}.so ./Release/libsciter-gtk.so
+            [[ -f /opt/ci-cache/libsciter-gtk-${{ matrix.job.sciter_arch }}.so ]] || wget -O /opt/ci-cache/libsciter-gtk-${{ matrix.job.sciter_arch }}.so https://github.com/c-smile/sciter-sdk/raw/master/bin.lnx/${{ matrix.job.sciter_arch }}/libsciter-gtk.so
+            cp /opt/ci-cache/libsciter-gtk-${{ matrix.job.sciter_arch }}.so ./Release/libsciter-gtk.so
             export DEB_ARCH=${{ matrix.job.deb_arch }}
             ./build.py --package ./Release
 
