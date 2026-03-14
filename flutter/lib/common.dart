@@ -739,6 +739,29 @@ Future<void> windowOnTop(int? id) async {
   }
 }
 
+Future<void> hideMainWindow() async {
+  if (!isDesktop) {
+    return;
+  }
+  if (rustDeskWinManager.getActiveWindows().contains(kMainWindowId)) {
+    await rustDeskWinManager.unregisterActiveWindow(kMainWindowId);
+  }
+  await windowManager.hide();
+}
+
+Future<void> toggleMainWindowVisibility() async {
+  if (!isDesktop) {
+    return;
+  }
+  final visible = await windowManager.isVisible();
+  final minimized = await windowManager.isMinimized();
+  if (visible && !minimized) {
+    await hideMainWindow();
+  } else {
+    await windowOnTop(null);
+  }
+}
+
 typedef DialogBuilder = CustomAlertDialog Function(
     StateSetter setState, void Function([dynamic]) close, BuildContext context);
 

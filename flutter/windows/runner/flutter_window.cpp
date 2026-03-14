@@ -24,6 +24,58 @@ FlutterWindow::FlutterWindow(const flutter::DartProject& project)
 
 FlutterWindow::~FlutterWindow() {}
 
+bool FlutterWindow::RegisterMainWindowHotKey(const flutter::EncodableMap& args) {
+  UnregisterMainWindowHotKey();
+
+  UINT modifiers = 0;
+  UINT key_code = 0;
+
+  const auto key_it = args.find(flutter::EncodableValue("keyCode"));
+  if (key_it != args.end() && std::holds_alternative<int>(key_it->second)) {
+    key_code = std::get<int>(key_it->second);
+  }
+  if (key_code == 0) {
+    return false;
+  }
+
+  const auto alt_it = args.find(flutter::EncodableValue("alt"));
+  if (alt_it != args.end() && std::holds_alternative<bool>(alt_it->second) &&
+      std::get<bool>(alt_it->second)) {
+    modifiers |= MOD_ALT;
+  }
+
+  const auto control_it = args.find(flutter::EncodableValue("control"));
+  if (control_it != args.end() &&
+      std::holds_alternative<bool>(control_it->second) &&
+      std::get<bool>(control_it->second)) {
+    modifiers |= MOD_CONTROL;
+  }
+
+  const auto shift_it = args.find(flutter::EncodableValue("shift"));
+  if (shift_it != args.end() && std::holds_alternative<bool>(shift_it->second) &&
+      std::get<bool>(shift_it->second)) {
+    modifiers |= MOD_SHIFT;
+  }
+
+  const auto meta_it = args.find(flutter::EncodableValue("meta"));
+  if (meta_it != args.end() && std::holds_alternative<bool>(meta_it->second) &&
+      std::get<bool>(meta_it->second)) {
+    modifiers |= MOD_WIN;
+  }
+
+  main_window_hotkey_registered_ = RegisterHotKey(
+      GetHandle(), main_window_hotkey_id_, modifiers | MOD_NOREPEAT, key_code);
+  return main_window_hotkey_registered_;
+}
+
+void FlutterWindow::UnregisterMainWindowHotKey() {
+  if (!main_window_hotkey_registered_) {
+    return;
+  }
+  UnregisterHotKey(GetHandle(), main_window_hotkey_id_);
+  main_window_hotkey_registered_ = false;
+}
+
 bool FlutterWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
     return false;
@@ -41,13 +93,13 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
 
-  flutter::MethodChannel<> channel(
-    flutter_controller_->engine()->messenger(),
-    "org.rustdesk.rustdesk/host",
-    &flutter::StandardMethodCodec::GetInstance());
+  host_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+      flutter_controller_->engine()->messenger(),
+      "org.rustdesk.rustdesk/host",
+      &flutter::StandardMethodCodec::GetInstance());
 
-  channel.SetMethodCallHandler(
-    [](const flutter::MethodCall<>& call, std::unique_ptr<flutter::MethodResult<>> result) {
+  host_channel_->SetMethodCallHandler(
+    [this](const flutter::MethodCall<>& call, std::unique_ptr<flutter::MethodResult<>> result) {
       if (call.method_name() == "bumpMouse") {
         auto arguments = call.arguments();
 
@@ -79,6 +131,19 @@ bool FlutterWindow::OnCreate() {
         bool succeeded = Win32Desktop::BumpMouse(dx, dy);
 
         result->Success(succeeded);
+      } else if (call.method_name() == "registerMainWindowHotKey") {
+        if (call.arguments() != nullptr &&
+            std::holds_alternative<flutter::EncodableMap>(*call.arguments())) {
+          const auto& args = std::get<flutter::EncodableMap>(*call.arguments());
+          result->Success(RegisterMainWindowHotKey(args));
+        } else {
+          result->Success(false);
+        }
+      } else if (call.method_name() == "unregisterMainWindowHotKey") {
+        UnregisterMainWindowHotKey();
+        result->Success();
+      } else {
+        result->NotImplemented();
       }
     });
 
@@ -96,6 +161,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  UnregisterMainWindowHotKey();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -120,6 +186,12 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   switch (message) {
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
+      break;
+    case WM_HOTKEY:
+      if (wparam == main_window_hotkey_id_ && host_channel_) {
+        host_channel_->InvokeMethod("mainWindowHotKeyPressed", nullptr);
+        return 0;
+      }
       break;
   }
 

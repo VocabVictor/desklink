@@ -18,6 +18,7 @@ import 'package:flutter_hbb/desktop/screen/desktop_terminal_screen.dart';
 import 'package:flutter_hbb/desktop/widgets/refresh_wrapper.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
+import 'package:flutter_hbb/utils/main_window_hotkey.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
@@ -143,6 +144,7 @@ void runMainApp(bool startService) async {
   }
   await Future.wait([gFFI.abModel.loadCache(), gFFI.groupModel.loadCache()]);
   gFFI.userModel.refreshCurrentUser();
+  await MainWindowHotkeyManager.instance.reload();
   runApp(App());
 
   bool? alwaysOnTop;
@@ -159,14 +161,15 @@ void runMainApp(bool startService) async {
     await restoreWindowPosition(WindowType.Main);
     // Check the startup argument, if we successfully handle the argument, we keep the main window hidden.
     final handledByUniLinks = await initUniLinks();
+    final startHidden = handledByUniLinks ||
+        handleUriLink(cmdArgs: kBootArgs) ||
+        kBootArgs.contains('--silent-start') ||
+        mainGetLocalBoolOptionSync(kOptionSilentStart);
     debugPrint("handled by uni links: $handledByUniLinks");
-    if (handledByUniLinks || handleUriLink(cmdArgs: kBootArgs)) {
-      windowManager.hide();
+    if (startHidden) {
+      await hideMainWindow();
     } else {
-      windowManager.show();
-      windowManager.focus();
-      // Move registration of active main window here to prevent from async visible check.
-      rustDeskWinManager.registerActiveWindow(kWindowMainId);
+      await windowOnTop(null);
     }
     windowManager.setOpacity(1);
     windowManager.setTitle(getWindowName());

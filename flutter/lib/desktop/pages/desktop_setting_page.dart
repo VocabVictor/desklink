@@ -19,6 +19,7 @@ import 'package:flutter_hbb/models/server_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:flutter_hbb/plugin/manager.dart';
 import 'package:flutter_hbb/plugin/widgets/desktop_settings.dart';
+import 'package:flutter_hbb/utils/main_window_hotkey.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -417,6 +418,7 @@ class _GeneralState extends State<_General> {
         if (!isWeb) service(),
         theme(),
         _Card(title: 'Language', children: [language()]),
+        if ((isWindows || isMacOS) && !isWeb) background(),
         if (!isWeb) hwcodec(),
         if (!isWeb) audio(context),
         if (!isWeb) record(context),
@@ -450,6 +452,127 @@ class _GeneralState extends State<_General> {
           groupValue: current,
           label: 'Follow System',
           onChanged: isOptFixed ? null : onChanged),
+    ]);
+  }
+
+  Widget background() {
+    final hotkeyManager = MainWindowHotkeyManager.instance;
+    return _Card(title: 'Background', children: [
+      if (!bind.isIncomingOnly())
+        _OptionCheckBox(
+          context,
+          'Start in background',
+          kOptionSilentStart,
+          isServer: false,
+          update: (_) => setState(() {}),
+        ),
+      if (!bind.isIncomingOnly())
+        _OptionCheckBox(
+          context,
+          'Enable show or hide shortcut',
+          kOptionEnableMainWindowHotkey,
+          isServer: false,
+          optSetter: (key, value) async {
+            if (value) {
+              await hotkeyManager.ensureStoredHotkey();
+            }
+            await bind.mainSetLocalOption(key: key, value: value ? 'Y' : 'N');
+            final ok = await hotkeyManager.reload(showError: value);
+            if (value && !ok) {
+              await bind.mainSetLocalOption(key: key, value: 'N');
+              await hotkeyManager.reload();
+            }
+            setState(() {});
+          },
+          update: (_) => setState(() {}),
+        ),
+      if (!bind.isIncomingOnly())
+        _SubLabeledWidget(
+          context,
+          'Shortcut',
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              SelectableText(
+                hotkeyManager.currentHotkey.displayLabel,
+                style: TextStyle(
+                  color: disabledTextColor(
+                    context,
+                    mainGetLocalBoolOptionSync(kOptionEnableMainWindowHotkey),
+                  ),
+                ),
+              ),
+              OutlinedButton(
+                onPressed: () async {
+                  final recorded = await showDialog<MainWindowHotkey>(
+                    context: context,
+                    builder: (_) => const _MainWindowHotkeyRecorderDialog(),
+                  );
+                  if (recorded == null) {
+                    return;
+                  }
+                  final error = recorded.validationError;
+                  if (error != null) {
+                    showToast(error);
+                    return;
+                  }
+                  await bind.mainSetLocalOption(
+                    key: kOptionMainWindowHotkey,
+                    value: recorded.toStorage(),
+                  );
+                  if (mainGetLocalBoolOptionSync(kOptionEnableMainWindowHotkey)) {
+                    await hotkeyManager.reload(showError: true);
+                  }
+                  setState(() {});
+                },
+                child: Text(translate('Record')),
+              ),
+              TextButton(
+                onPressed: () async {
+                  final recommended = MainWindowHotkey.recommended();
+                  await bind.mainSetLocalOption(
+                    key: kOptionMainWindowHotkey,
+                    value: recommended.toStorage(),
+                  );
+                  if (mainGetLocalBoolOptionSync(kOptionEnableMainWindowHotkey)) {
+                    await hotkeyManager.reload(showError: true);
+                  }
+                  setState(() {});
+                },
+                child: Text(translate('Reset')),
+              ),
+            ],
+          ),
+          enabled: mainGetLocalBoolOptionSync(kOptionEnableMainWindowHotkey),
+        ),
+      if (!bind.isIncomingOnly())
+        Padding(
+          padding: const EdgeInsets.only(left: _kContentHSubMargin),
+          child: Text(
+            translate(
+              isMacOS
+                  ? 'Use Command + Option + a letter, number, or F key.'
+                  : 'Use Ctrl + Alt + a letter, number, or F key.',
+            ),
+            style: TextStyle(
+              color: Theme.of(context).hintColor,
+              fontSize: 13,
+            ),
+          ),
+        ),
+      if (!bind.isIncomingOnly())
+        Padding(
+          padding: const EdgeInsets.only(left: _kContentHSubMargin, top: 4),
+          child: Text(
+            translate('Closing the main window still hides it to the tray.'),
+            style: TextStyle(
+              color: Theme.of(context).hintColor,
+              fontSize: 13,
+            ),
+          ),
+        ),
     ]);
   }
 
@@ -796,6 +919,107 @@ class _GeneralState extends State<_General> {
         enabled: !isOptFixed,
       ).marginOnly(left: _kContentHMargin);
     });
+  }
+}
+
+class _MainWindowHotkeyRecorderDialog extends StatefulWidget {
+  const _MainWindowHotkeyRecorderDialog();
+
+  @override
+  State<_MainWindowHotkeyRecorderDialog> createState() =>
+      _MainWindowHotkeyRecorderDialogState();
+}
+
+class _MainWindowHotkeyRecorderDialogState
+    extends State<_MainWindowHotkeyRecorderDialog> {
+  final FocusNode _focusNode = FocusNode();
+  String? _error;
+  String _preview = '';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _focusNode.requestFocus();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _onKey(RawKeyEvent event) {
+    if (event is! RawKeyDownEvent) {
+      return;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final hotkey = MainWindowHotkey.fromKeyEvent(event);
+    if (hotkey == null) {
+      setState(() {
+        _error = translate('Use a letter, number, or F key.');
+      });
+      return;
+    }
+    final error = hotkey.validationError;
+    if (error != null) {
+      setState(() {
+        _preview = hotkey.displayLabel;
+        _error = translate(error);
+      });
+      return;
+    }
+    Navigator.of(context).pop(hotkey);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final helper = isMacOS
+        ? 'Press Command + Option + a letter, number, or F key.'
+        : 'Press Ctrl + Alt + a letter, number, or F key.';
+    return AlertDialog(
+      title: Text(translate('Record shortcut')),
+      content: RawKeyboardListener(
+        focusNode: _focusNode,
+        onKey: _onKey,
+        child: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(translate(helper)),
+              const SizedBox(height: 12),
+              Text(
+                _preview.isEmpty
+                    ? translate('Waiting for key press...')
+                    : _preview,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _error!,
+                  style: const TextStyle(color: Colors.redAccent),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(translate('Cancel')),
+        ),
+      ],
+    );
   }
 }
 

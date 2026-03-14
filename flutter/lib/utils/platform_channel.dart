@@ -7,7 +7,9 @@ enum SystemWindowTheme { light, dark }
 
 /// The platform channel for RustDesk.
 class RdPlatformChannel {
-  RdPlatformChannel._();
+  RdPlatformChannel._() {
+    _hostMethodChannel.setMethodCallHandler(_handleMethodCall);
+  }
 
   static final RdPlatformChannel _windowUtil = RdPlatformChannel._();
 
@@ -15,6 +17,7 @@ class RdPlatformChannel {
 
   final MethodChannel _hostMethodChannel =
       MethodChannel("org.rustdesk.rustdesk/host");
+  VoidCallback? _mainWindowHotKeyHandler;
 
   /// Bump the position of the mouse cursor, if applicable
   Future<bool> bumpMouse({required int dx, required int dy}) async {
@@ -41,5 +44,43 @@ class RdPlatformChannel {
   Future<void> terminate() {
     assert(isMacOS);
     return _hostMethodChannel.invokeMethod("terminate");
+  }
+
+  void setMainWindowHotKeyHandler(VoidCallback? handler) {
+    _mainWindowHotKeyHandler = handler;
+  }
+
+  Future<bool> registerMainWindowHotKey({
+    required int keyCode,
+    bool alt = false,
+    bool control = false,
+    bool meta = false,
+    bool shift = false,
+  }) async {
+    final result = await _hostMethodChannel.invokeMethod<bool>(
+      "registerMainWindowHotKey",
+      {
+        "keyCode": keyCode,
+        "alt": alt,
+        "control": control,
+        "meta": meta,
+        "shift": shift,
+      },
+    );
+    return result ?? false;
+  }
+
+  Future<void> unregisterMainWindowHotKey() {
+    return _hostMethodChannel.invokeMethod("unregisterMainWindowHotKey");
+  }
+
+  Future<dynamic> _handleMethodCall(MethodCall call) async {
+    switch (call.method) {
+      case "mainWindowHotKeyPressed":
+        _mainWindowHotKeyHandler?.call();
+        return null;
+      default:
+        return null;
+    }
   }
 }

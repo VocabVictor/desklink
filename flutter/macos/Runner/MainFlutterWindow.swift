@@ -1,5 +1,6 @@
 import Cocoa
 import AVFoundation
+import Carbon
 import FlutterMacOS
 import desktop_multi_window
 // import bitsdojo_window_macos
@@ -33,6 +34,28 @@ class RelativeMouseState {
     var accumulatedDeltaY: CGFloat = 0
 
     private init() {}
+}
+
+class MainWindowHotKeyState {
+    static let shared = MainWindowHotKeyState()
+
+    var hotKeyRef: EventHotKeyRef?
+    var eventHandler: EventHandlerRef?
+    var eventChannel: FlutterMethodChannel?
+    let hotKeySignature: OSType = 0x5253444B
+    let hotKeyId: UInt32 = 1
+
+    private init() {}
+}
+
+private func rustDeskMainWindowHotKeyHandler(
+    nextHandler: EventHandlerCallRef?,
+    event: EventRef?,
+    userData: UnsafeMutableRawPointer?
+) -> OSStatus {
+    let state = MainWindowHotKeyState.shared
+    state.eventChannel?.invokeMethod("mainWindowHotKeyPressed", arguments: nil)
+    return noErr
 }
 
 class MainFlutterWindow: NSWindow {
@@ -78,6 +101,66 @@ class MainFlutterWindow: NSWindow {
     /// Override window theme.
     public func setWindowInterfaceMode(window: NSWindow, themeName: String) {
         window.appearance = NSAppearance(named: themeName == "light" ? .aqua : .darkAqua)
+    }
+
+    private func registerMainWindowHotKey(channel: FlutterMethodChannel, arguments: [String: Any]) -> Bool {
+        unregisterMainWindowHotKey()
+
+        guard let keyCode = arguments["keyCode"] as? Int else {
+            return false
+        }
+
+        var modifiers: UInt32 = 0
+        if (arguments["alt"] as? Bool) == true {
+            modifiers |= UInt32(optionKey)
+        }
+        if (arguments["control"] as? Bool) == true {
+            modifiers |= UInt32(controlKey)
+        }
+        if (arguments["shift"] as? Bool) == true {
+            modifiers |= UInt32(shiftKey)
+        }
+        if (arguments["meta"] as? Bool) == true {
+            modifiers |= UInt32(cmdKey)
+        }
+
+        let state = MainWindowHotKeyState.shared
+        state.eventChannel = channel
+
+        if state.eventHandler == nil {
+            var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                                          eventKind: UInt32(kEventHotKeyPressed))
+            let status = InstallEventHandler(
+                GetApplicationEventTarget(),
+                rustDeskMainWindowHotKeyHandler,
+                1,
+                &eventType,
+                nil,
+                &state.eventHandler
+            )
+            if status != noErr {
+                return false
+            }
+        }
+
+        var hotKeyId = EventHotKeyID(signature: state.hotKeySignature, id: state.hotKeyId)
+        let status = RegisterEventHotKey(
+            UInt32(keyCode),
+            modifiers,
+            hotKeyId,
+            GetApplicationEventTarget(),
+            0,
+            &state.hotKeyRef
+        )
+        return status == noErr
+    }
+
+    private func unregisterMainWindowHotKey() {
+        let state = MainWindowHotKeyState.shared
+        if let hotKeyRef = state.hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
+            state.hotKeyRef = nil
+        }
     }
 
     private func enableNativeRelativeMouseMode(channel: FlutterMethodChannel) -> Bool {
@@ -195,6 +278,15 @@ class MainFlutterWindow: NSWindow {
                     break;
                 case "terminate":
                     NSApplication.shared.terminate(self)
+                    result(nil)
+                case "registerMainWindowHotKey":
+                    if let arg = call.arguments as? [String: Any] {
+                        result(self.registerMainWindowHotKey(channel: channel, arguments: arg))
+                    } else {
+                        result(false)
+                    }
+                case "unregisterMainWindowHotKey":
+                    self.unregisterMainWindowHotKey()
                     result(nil)
                 case "canRecordAudio":
                     switch AVCaptureDevice.authorizationStatus(for: .audio) {
