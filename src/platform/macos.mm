@@ -5,6 +5,7 @@
 #include <Security/AuthorizationTags.h>
 
 #include <CoreGraphics/CoreGraphics.h>
+#include <dlfcn.h>
 #include <vector>
 #include <map>
 #include <set>
@@ -29,10 +30,16 @@ extern "C" bool IsCanScreenRecording(bool prompt) {
     #ifdef NO_InputMonitoringAuthStatus
     return false;
     #else
-    if (@available(macOS 10.15, *)) {
-        bool res = CGPreflightScreenCaptureAccess();
+    typedef bool (*CGPreflightScreenCaptureAccessFn)(void);
+    typedef bool (*CGRequestScreenCaptureAccessFn)(void);
+    auto preflight = reinterpret_cast<CGPreflightScreenCaptureAccessFn>(dlsym(RTLD_DEFAULT, "CGPreflightScreenCaptureAccess"));
+    auto request = reinterpret_cast<CGRequestScreenCaptureAccessFn>(dlsym(RTLD_DEFAULT, "CGRequestScreenCaptureAccess"));
+    if (preflight != nullptr) {
+        bool res = preflight();
         if (!res && prompt) {
-            CGRequestScreenCaptureAccess();
+            if (request != nullptr) {
+                request();
+            }
         }
         return res;
     }
@@ -47,8 +54,12 @@ extern "C" bool InputMonitoringAuthStatus(bool prompt) {
     #ifdef NO_InputMonitoringAuthStatus
     return true;
     #else
-    if (@available(macOS 10.15, *)) {
-        IOHIDAccessType theType = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent);
+    typedef IOHIDAccessType (*IOHIDCheckAccessFn)(IOHIDRequestType requestType);
+    typedef bool (*IOHIDRequestAccessFn)(IOHIDRequestType requestType);
+    auto checkAccess = reinterpret_cast<IOHIDCheckAccessFn>(dlsym(RTLD_DEFAULT, "IOHIDCheckAccess"));
+    auto requestAccess = reinterpret_cast<IOHIDRequestAccessFn>(dlsym(RTLD_DEFAULT, "IOHIDRequestAccess"));
+    if (checkAccess != nullptr) {
+        IOHIDAccessType theType = checkAccess(kIOHIDRequestTypeListenEvent);
         NSLog(@"IOHIDCheckAccess = %d, kIOHIDAccessTypeGranted = %d", theType, kIOHIDAccessTypeGranted);
         switch (theType) {
             case kIOHIDAccessTypeGranted:
@@ -62,8 +73,8 @@ extern "C" bool InputMonitoringAuthStatus(bool prompt) {
                 break;
             }
             case kIOHIDAccessTypeUnknown: {
-                if (prompt) {
-                    bool result = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent);
+                if (prompt && requestAccess != nullptr) {
+                    bool result = requestAccess(kIOHIDRequestTypeListenEvent);
                     NSLog(@"IOHIDRequestAccess result = %d", result);
                 }
                 break;
@@ -71,10 +82,8 @@ extern "C" bool InputMonitoringAuthStatus(bool prompt) {
             default:
                 break;
         }
-    } else {
-        return true;
     }
-    return false;
+    return checkAccess == nullptr;
     #endif
 }
 
