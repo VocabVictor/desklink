@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/consts.dart';
+import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/utils/platform_channel.dart';
 
 class MainWindowHotkey {
@@ -81,7 +82,7 @@ class MainWindowHotkey {
       }
     }
 
-    const functionKeys = {
+    final functionKeys = {
       LogicalKeyboardKey.f1: 'F1',
       LogicalKeyboardKey.f2: 'F2',
       LogicalKeyboardKey.f3: 'F3',
