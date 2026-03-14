@@ -110,13 +110,29 @@ jobs:
             vcpkg-flutter-windows-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-${{ env.VCPKG_COMMIT_ID }}-
             vcpkg-flutter-windows-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-
 
+      - name: Cache external downloads
+        uses: actions/cache@v4
+        with:
+          path: C:\ci-cache\downloads
+          key: external-flutter-windows-${{ env.FLUTTER_VERSION }}-engine-main-usbmmidd-v2-printer-v4-1
+          restore-keys: |
+            external-flutter-windows-
+
       # https://github.com/flutter/flutter/issues/155685
       - name: Replace engine with rustdesk custom flutter engine
         run: |
+          $cacheDir = "C:\ci-cache\downloads"
+          New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
+          $engineZip = Join-Path $cacheDir "windows-x64-release.zip"
           flutter doctor -v
           flutter precache --windows
-          Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
-          Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
+          if (!(Test-Path $engineZip)) {
+            Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile $engineZip
+          }
+          if (Test-Path windows-x64-release) {
+            Remove-Item -Recurse -Force windows-x64-release
+          }
+          Expand-Archive -Path $engineZip -DestinationPath windows-x64-release
           mv -Force windows-x64-release/* C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release/
 
       - name: Patch flutter
@@ -167,12 +183,18 @@ jobs:
       - name: Build rustdesk
         shell: powershell
         run: |
+          $cacheDir = "C:\ci-cache\downloads"
+          New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
           # Windows: build RustDesk
           python3 .\build.py --portable --hwcodec --flutter --vram --skip-portable-pack
           mv ./flutter/build/windows/x64/runner/Release ./rustdesk
 
           # Download usbmmidd_v2.zip and extract it to ./rustdesk
-          Invoke-WebRequest -Uri https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile usbmmidd_v2.zip
+          $usbZip = Join-Path $cacheDir "usbmmidd_v2.zip"
+          if (!(Test-Path $usbZip)) {
+            Invoke-WebRequest -Uri https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile $usbZip
+          }
+          Copy-Item -Force $usbZip .\usbmmidd_v2.zip
           Expand-Archive usbmmidd_v2.zip -DestinationPath .
           Remove-Item -Path usbmmidd_v2\Win32 -Recurse
           Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat"
@@ -180,9 +202,21 @@ jobs:
 
           # Download printer driver files and extract them to ./rustdesk
           try {
-            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip -OutFile rustdesk_printer_driver_v4-1.4.zip
-            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip -OutFile printer_driver_adapter.zip
-            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/sha256sums -OutFile sha256sums
+            $printerZip = Join-Path $cacheDir "rustdesk_printer_driver_v4-1.4.zip"
+            $adapterZip = Join-Path $cacheDir "printer_driver_adapter.zip"
+            $shaFile = Join-Path $cacheDir "sha256sums"
+            if (!(Test-Path $printerZip)) {
+              Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip -OutFile $printerZip
+            }
+            if (!(Test-Path $adapterZip)) {
+              Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip -OutFile $adapterZip
+            }
+            if (!(Test-Path $shaFile)) {
+              Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/sha256sums -OutFile $shaFile
+            }
+            Copy-Item -Force $printerZip .\rustdesk_printer_driver_v4-1.4.zip
+            Copy-Item -Force $adapterZip .\printer_driver_adapter.zip
+            Copy-Item -Force $shaFile .\sha256sums
 
             # Check and move the files
             $checksum_driver = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*rustdesk_printer_driver_v4-1.4\.zip$').Matches.Groups[1].Value
@@ -335,6 +369,14 @@ jobs:
             vcpkg-sciter-windows-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-${{ env.VCPKG_COMMIT_ID }}-
             vcpkg-sciter-windows-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-
 
+      - name: Cache external downloads
+        uses: actions/cache@v4
+        with:
+          path: C:\ci-cache\downloads
+          key: external-sciter-windows-usbmmidd-v2-sciter-x32
+          restore-keys: |
+            external-sciter-windows-
+
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@v11
         with:
@@ -366,15 +408,18 @@ jobs:
         id: build
         shell: bash
         run: |
+          mkdir -p /c/ci-cache/downloads
           python3 res/inline-sciter.py
           # Patch sciter x86
           sed -i 's/branch = "dyn"/branch = "dyn_x86"/g' ./Cargo.toml
           cargo build --features inline,vram,hwcodec --release --bins
           mkdir -p ./Release
           mv ./target/release/rustdesk.exe ./Release/rustdesk.exe
-          curl -LJ -o ./Release/sciter.dll https://github.com/c-smile/sciter-sdk/raw/master/bin.win/x32/sciter.dll
+          [[ -f /c/ci-cache/downloads/sciter-x32.dll ]] || curl -LJ -o /c/ci-cache/downloads/sciter-x32.dll https://github.com/c-smile/sciter-sdk/raw/master/bin.win/x32/sciter.dll
+          cp /c/ci-cache/downloads/sciter-x32.dll ./Release/sciter.dll
           echo "output_folder=./Release" >> $GITHUB_OUTPUT
-          curl -LJ -o ./usbmmidd_v2.zip https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip
+          [[ -f /c/ci-cache/downloads/usbmmidd_v2.zip ]] || curl -LJ -o /c/ci-cache/downloads/usbmmidd_v2.zip https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip
+          cp /c/ci-cache/downloads/usbmmidd_v2.zip ./usbmmidd_v2.zip
           unzip usbmmidd_v2.zip
           # Do not remove x64 files, because the user may run the 32bit version on a 64bit system.
           # Do not remove ./usbmmidd_v2/deviceinstaller64.exe, as x86 exe cannot install and uninstall drivers when running on x64,
@@ -494,8 +539,10 @@ jobs:
         if: env.MACOS_P12_BASE64 != null
         shell: bash
         run: |
+          mkdir -p ~/ci-cache/downloads
           pushd /tmp
-          wget https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F0.22.0/apple-codesign-0.22.0-macos-universal.tar.gz
+          [[ -f ~/ci-cache/downloads/apple-codesign-0.22.0-macos-universal.tar.gz ]] || wget -O ~/ci-cache/downloads/apple-codesign-0.22.0-macos-universal.tar.gz https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F0.22.0/apple-codesign-0.22.0-macos-universal.tar.gz
+          cp ~/ci-cache/downloads/apple-codesign-0.22.0-macos-universal.tar.gz .
           tar -zxvf apple-codesign-0.22.0-macos-universal.tar.gz
           mv apple-codesign-0.22.0-macos-universal/rcodesign /usr/local/bin
           popd
@@ -516,8 +563,9 @@ jobs:
           # Do NOT use `brew install nasm` which installs NASM 3.x.
           # NASM 3.x is a complete rewrite with incompatible CLI options and removed features.
           # aom and other multimedia libraries require NASM 2.x for x86/x86_64 assembly.
-          wget https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/macosx/nasm-2.16.03-macosx.zip
-          unzip nasm-2.16.03-macosx.zip
+          mkdir -p ~/ci-cache/downloads
+          [[ -f ~/ci-cache/downloads/nasm-2.16.03-macosx.zip ]] || wget -O ~/ci-cache/downloads/nasm-2.16.03-macosx.zip https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/macosx/nasm-2.16.03-macosx.zip
+          unzip ~/ci-cache/downloads/nasm-2.16.03-macosx.zip
           sudo cp nasm-2.16.03/nasm /usr/local/bin/nasm
           nasm --version
 
@@ -563,6 +611,14 @@ jobs:
           restore-keys: |
             vcpkg-flutter-macos-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-${{ env.VCPKG_COMMIT_ID }}-
             vcpkg-flutter-macos-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-
+
+      - name: Cache external downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/ci-cache/downloads
+          key: external-flutter-macos-apple-codesign-0.22.0-nasm-2.16.03
+          restore-keys: |
+            external-flutter-macos-
 
       - name: Restore bridge files
         uses: actions/download-artifact@master
@@ -741,6 +797,14 @@ jobs:
             sudo apt-get install -y qemu-user-static
           fi
 
+      - name: Cache external downloads
+        uses: actions/cache@v4
+        with:
+          path: /opt/artifacts/ci-cache
+          key: external-flutter-linux-${{ matrix.job.target }}-rust-${{ env.FLUTTER_VERSION }}
+          restore-keys: |
+            external-flutter-linux-${{ matrix.job.target }}-
+
       - name: Checkout source code
         uses: actions/checkout@v5
         with:
@@ -884,7 +948,9 @@ jobs:
           run: |
             git config --global --add safe.directory "*"
             pushd /opt
-            wget -O rust.tar.gz https://static.rust-lang.org/dist/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz
+            mkdir -p /opt/artifacts/ci-cache
+            [[ -f /opt/artifacts/ci-cache/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz ]] || wget -O /opt/artifacts/ci-cache/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz https://static.rust-lang.org/dist/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz
+            cp /opt/artifacts/ci-cache/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz rust.tar.gz
             tar -zxvf rust.tar.gz > /dev/null && rm rust.tar.gz
             cd rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }} && ./install.sh
             rm -rf rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}
@@ -919,7 +985,9 @@ jobs:
             esac
             popd
             pushd /opt
-            wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${{ env.FLUTTER_VERSION }}-stable.tar.xz
+            mkdir -p /opt/artifacts/ci-cache
+            [[ -f /opt/artifacts/ci-cache/flutter_linux_${{ env.FLUTTER_VERSION }}-stable.tar.xz ]] || wget -O /opt/artifacts/ci-cache/flutter_linux_${{ env.FLUTTER_VERSION }}-stable.tar.xz https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${{ env.FLUTTER_VERSION }}-stable.tar.xz
+            cp /opt/artifacts/ci-cache/flutter_linux_${{ env.FLUTTER_VERSION }}-stable.tar.xz .
             tar xf flutter_linux_${{ env.FLUTTER_VERSION }}-stable.tar.xz
             case ${{ matrix.job.arch }} in
               aarch64)
@@ -1085,6 +1153,14 @@ jobs:
           RUST_TOOLCHAIN_VERSION=$(cargo --version | awk '{print $2}')
           echo "RUST_TOOLCHAIN_VERSION=$RUST_TOOLCHAIN_VERSION" >> $GITHUB_ENV
 
+      - name: Cache external downloads
+        uses: actions/cache@v4
+        with:
+          path: /opt/artifacts/ci-cache
+          key: external-sciter-linux-${{ matrix.job.target }}-${{ env.SCITER_NASM_DEBVERSION }}-${{ env.SCITER_ARMV7_CMAKE_VERSION }}
+          restore-keys: |
+            external-sciter-linux-${{ matrix.job.target }}-
+
       - uses: rustdesk-org/run-on-arch-action@amd64-support
         name: Build rustdesk sciter binary for ${{ matrix.job.arch }}
         id: vcpkg
@@ -1096,6 +1172,7 @@ jobs:
             ls -l "${PWD}"
           dockerRunArgs: |
             --volume "${PWD}:/workspace"
+            --volume "/opt/artifacts:/opt/artifacts"
           shell: /bin/bash
           install: |
             apt-get update
@@ -1167,7 +1244,9 @@ jobs:
             # rust
             pushd /opt
             # do not use rustup, because memory overflow in qemu
-            wget --output-document rust.tar.gz https://static.rust-lang.org/dist/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz
+            mkdir -p /opt/artifacts/ci-cache
+            [[ -f /opt/artifacts/ci-cache/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz ]] || wget --output-document /opt/artifacts/ci-cache/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz https://static.rust-lang.org/dist/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz
+            cp /opt/artifacts/ci-cache/rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}.tar.gz rust.tar.gz
             tar -zxvf rust.tar.gz > /dev/null && rm rust.tar.gz
             pushd rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}
             ./install.sh
@@ -1175,7 +1254,8 @@ jobs:
             rm -rf rust-${{env.RUST_TOOLCHAIN_VERSION}}-${{ matrix.job.target }}
             popd
             # install newer nasm for aom
-            wget --output-document nasm.deb "http://ftp.us.debian.org/debian/pool/main/n/nasm/nasm_${{ env.SCITER_NASM_DEBVERSION }}_${{ matrix.job.deb_arch }}.deb"
+            [[ -f /opt/artifacts/ci-cache/nasm_${{ env.SCITER_NASM_DEBVERSION }}_${{ matrix.job.deb_arch }}.deb ]] || wget --output-document /opt/artifacts/ci-cache/nasm_${{ env.SCITER_NASM_DEBVERSION }}_${{ matrix.job.deb_arch }}.deb "http://ftp.us.debian.org/debian/pool/main/n/nasm/nasm_${{ env.SCITER_NASM_DEBVERSION }}_${{ matrix.job.deb_arch }}.deb"
+            cp /opt/artifacts/ci-cache/nasm_${{ env.SCITER_NASM_DEBVERSION }}_${{ matrix.job.deb_arch }}.deb nasm.deb
             dpkg -i nasm.deb
             rm -f nasm.deb
           run: |
@@ -1217,7 +1297,8 @@ jobs:
             # make debian package
             mkdir -p ./Release
             mv ./target/release/rustdesk ./Release/rustdesk
-            wget -O ./Release/libsciter-gtk.so https://github.com/c-smile/sciter-sdk/raw/master/bin.lnx/${{ matrix.job.sciter_arch }}/libsciter-gtk.so
+            [[ -f /opt/artifacts/ci-cache/libsciter-gtk-${{ matrix.job.sciter_arch }}.so ]] || wget -O /opt/artifacts/ci-cache/libsciter-gtk-${{ matrix.job.sciter_arch }}.so https://github.com/c-smile/sciter-sdk/raw/master/bin.lnx/${{ matrix.job.sciter_arch }}/libsciter-gtk.so
+            cp /opt/artifacts/ci-cache/libsciter-gtk-${{ matrix.job.sciter_arch }}.so ./Release/libsciter-gtk.so
             export DEB_ARCH=${{ matrix.job.deb_arch }}
             ./build.py --package ./Release
 
