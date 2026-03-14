@@ -103,6 +103,17 @@ jobs:
       with:
         submodules: recursive
 
+    - name: Cache vcpkg artifacts
+      uses: actions/cache@v4
+      with:
+        path: |
+          /opt/artifacts/vcpkg/downloads
+          /opt/artifacts/vcpkg/installed
+        key: vcpkg-ci-${{ runner.os }}-${{ matrix.job.target }}-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json', 'res/vcpkg/**') }}
+        restore-keys: |
+          vcpkg-ci-${{ runner.os }}-${{ matrix.job.target }}-${{ env.VCPKG_COMMIT_ID }}-
+          vcpkg-ci-${{ runner.os }}-${{ matrix.job.target }}-
+
     - name: Install prerequisites
       shell: bash
       run: |

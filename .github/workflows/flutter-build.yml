@@ -94,6 +94,18 @@ jobs:
         with:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Cache vcpkg artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\vcpkg\downloads
+            C:\vcpkg\installed
+          key: vcpkg-flutter-windows-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json', 'res/vcpkg/**') }}
+          restore-keys: |
+            vcpkg-flutter-windows-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-${{ env.VCPKG_COMMIT_ID }}-
+            vcpkg-flutter-windows-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-
 
       # https://github.com/flutter/flutter/issues/155685
       - name: Replace engine with rustdesk custom flutter engine
@@ -309,6 +321,17 @@ jobs:
         with:
           prefix-key: ${{ matrix.job.os }}-sciter
 
+      - name: Cache vcpkg artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\vcpkg\downloads
+            C:\vcpkg\installed
+          key: vcpkg-sciter-windows-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json', 'res/vcpkg/**') }}
+          restore-keys: |
+            vcpkg-sciter-windows-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-${{ env.VCPKG_COMMIT_ID }}-
+            vcpkg-sciter-windows-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-
+
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@v11
         with:
@@ -500,6 +523,7 @@ jobs:
         with:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
 
       - name: Patch flutter
         run: |
@@ -524,6 +548,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: ${{ matrix.job.os }}
+
+      - name: Cache vcpkg artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/vcpkg/archives
+            ${{ env.VCPKG_ROOT }}/downloads
+            ${{ env.VCPKG_ROOT }}/installed
+          key: vcpkg-flutter-macos-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json', 'res/vcpkg/**') }}
+          restore-keys: |
+            vcpkg-flutter-macos-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-${{ env.VCPKG_COMMIT_ID }}-
+            vcpkg-flutter-macos-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-
 
       - name: Restore bridge files
         uses: actions/download-artifact@master
@@ -706,6 +742,18 @@ jobs:
         uses: actions/checkout@v5
         with:
           submodules: recursive
+
+      - name: Cache vcpkg artifacts
+        if: matrix.job.arch == 'x86_64' || env.UPLOAD_ARTIFACT == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            /opt/artifacts/vcpkg/downloads
+            /opt/artifacts/vcpkg/installed
+          key: vcpkg-flutter-linux-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json', 'res/vcpkg/**') }}
+          restore-keys: |
+            vcpkg-flutter-linux-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-${{ env.VCPKG_COMMIT_ID }}-
+            vcpkg-flutter-linux-${{ matrix.job.target }}-${{ matrix.job.vcpkg-triplet }}-
 
       - name: Set Swap Space
         if: ${{ matrix.job.arch == 'x86_64' }}
