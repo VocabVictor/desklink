@@ -1619,7 +1619,7 @@ mod desktop {
             }
             self.display = self
                 .display
-                .replace(&hbb_common::whoami::hostname(), "")
+                .replace(&crate::whoami_hostname(), "")
                 .replace("localhost", "");
         }
 
