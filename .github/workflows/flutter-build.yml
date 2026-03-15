@@ -37,6 +37,7 @@ env:
   ARMV7_VCPKG_COMMIT_ID: "6f29f12e82a8293156836ad81cc9bf5af41fe836" # 2025.01.13, got "/opt/artifacts/vcpkg/vcpkg: No such file or directory" with latest version
   VERSION: "1.4.6"
   NDK_VERSION: "r28c"
+  ANDROID_NDK_PACKAGE: "28.0.13004108"
   #signing keys env variable checks
   ANDROID_SIGNING_KEY: "${{ secrets.ANDROID_SIGNING_KEY }}"
   MACOS_P12_BASE64: "${{ secrets.MACOS_P12_BASE64 }}"
@@ -741,6 +742,181 @@ jobs:
           tag_name: ${{ env.TAG_NAME }}
           files: |
             desklink*-${{ matrix.job.arch }}.dmg
+
+  build-for-android:
+    name: android-arm64
+    runs-on: ubuntu-22.04
+    needs: [generate-bridge]
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Restore bridge files
+        uses: actions/download-artifact@master
+        with:
+          name: bridge-artifact
+          path: ./
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "ndk;${{ env.ANDROID_NDK_PACKAGE }}"
+
+      - name: Install flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.ANDROID_FLUTTER_VERSION }}
+          cache: true
+
+      - name: Patch flutter
+        shell: bash
+        run: |
+          patch_file="${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
+          cd "$(dirname "$(dirname "$(which flutter)")")"
+          if [[ "3.24.5" == ${{env.ANDROID_FLUTTER_VERSION}} ]]; then
+            if git apply --check "$patch_file"; then
+              git apply "$patch_file"
+            elif git apply --reverse --check "$patch_file"; then
+              echo "Flutter patch already applied"
+            else
+              echo "Unable to apply Flutter patch cleanly"
+              exit 1
+            fi
+          fi
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: aarch64-linux-android
+          components: "rustfmt"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: android-ubuntu-22.04
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --version ${{ env.CARGO_NDK_VERSION }} --locked
+
+      - name: Cache vcpkg artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.VCPKG_ROOT }}/downloads
+            ${{ env.VCPKG_ROOT }}/installed
+          key: vcpkg-flutter-android-arm64-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json', 'res/vcpkg/**') }}
+          restore-keys: |
+            vcpkg-flutter-android-arm64-${{ env.VCPKG_COMMIT_ID }}-
+            vcpkg-flutter-android-arm64-
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          doNotCache: true
+
+      - name: Build Android dependencies and APK
+        shell: bash
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.ANDROID_NDK_PACKAGE }}
+        run: |
+          set -euxo pipefail
+          pushd flutter
+          flutter pub get
+          bash ./build_android_deps.sh arm64-v8a
+          cargo ndk --platform 21 --target aarch64-linux-android build --release --features flutter,hwcodec
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a
+          cp ../target/aarch64-linux-android/release/librustdesk.so android/app/src/main/jniLibs/arm64-v8a/
+          cp "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" android/app/src/main/jniLibs/arm64-v8a/
+          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" android/app/src/main/jniLibs/arm64-v8a/*
+          flutter build apk --target-platform android-arm64 --release
+          popd
+
+      - name: Upload Android artifact
+        if: env.UPLOAD_ARTIFACT == 'true'
+        uses: actions/upload-artifact@master
+        with:
+          name: desklink-android-arm64-apk
+          path: flutter/build/app/outputs/flutter-apk/*.apk
+
+  build-for-ios:
+    name: ios-no-codesign
+    runs-on: macos-14
+    needs: [generate-bridge]
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Restore bridge files
+        uses: actions/download-artifact@master
+        with:
+          name: bridge-artifact
+          path: ./
+
+      - name: Install flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Patch flutter
+        shell: bash
+        run: |
+          patch_file="${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
+          cd "$(dirname "$(dirname "$(which flutter)")")"
+          if [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]]; then
+            if git apply --check "$patch_file"; then
+              git apply "$patch_file"
+            elif git apply --reverse --check "$patch_file"; then
+              echo "Flutter patch already applied"
+            else
+              echo "Unable to apply Flutter patch cleanly"
+              exit 1
+            fi
+          fi
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.MAC_RUST_VERSION }}
+          targets: aarch64-apple-ios
+          components: "rustfmt"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: ios-macos-14
+
+      - name: Build iOS archive without codesign
+        shell: bash
+        run: |
+          set -euxo pipefail
+          bash ./flutter/ios_arm64.sh
+          pushd flutter
+          flutter pub get
+          flutter build ios --release --no-codesign
+          popd
+
+      - name: Upload iOS artifact
+        if: env.UPLOAD_ARTIFACT == 'true'
+        uses: actions/upload-artifact@master
+        with:
+          name: desklink-ios-no-codesign
+          path: flutter/build/ios/iphoneos/*.app
 
   publish_unsigned:
     needs:
