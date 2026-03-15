@@ -138,9 +138,18 @@ jobs:
       - name: Patch flutter
         shell: bash
         run: |
-          cp .github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff $(dirname $(dirname $(which flutter)))
-          cd $(dirname $(dirname $(which flutter)))
-          [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]] && git apply flutter_3.24.4_dropdown_menu_enableFilter.diff
+          patch_file="${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
+          cd "$(dirname "$(dirname "$(which flutter)")")"
+          if [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]]; then
+            if git apply --check "$patch_file"; then
+              git apply "$patch_file"
+            elif git apply --reverse --check "$patch_file"; then
+              echo "Flutter patch already applied"
+            else
+              echo "Unable to apply Flutter patch cleanly"
+              exit 1
+            fi
+          fi
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@v1
@@ -578,8 +587,18 @@ jobs:
 
       - name: Patch flutter
         run: |
-          cd $(dirname $(dirname $(which flutter)))
-          [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]] && git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff
+          patch_file="${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
+          cd "$(dirname "$(dirname "$(which flutter)")")"
+          if [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]]; then
+            if git apply --check "$patch_file"; then
+              git apply "$patch_file"
+            elif git apply --reverse --check "$patch_file"; then
+              echo "Flutter patch already applied"
+            else
+              echo "Unable to apply Flutter patch cleanly"
+              exit 1
+            fi
+          fi
 
       - name: Workaround for flutter issue
         shell: bash
@@ -1012,6 +1031,7 @@ jobs:
             esac
 
             if [[ "3.24.5" == ${{ env.FLUTTER_VERSION }} ]]; then
+              patch_file="${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
               case ${{ matrix.job.arch }} in
                 aarch64)
                   pushd /opt/flutter-elinux/flutter
@@ -1020,7 +1040,14 @@ jobs:
                   pushd /opt/flutter
                 ;;
               esac
-              git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff
+              if git apply --check "$patch_file"; then
+                git apply "$patch_file"
+              elif git apply --reverse --check "$patch_file"; then
+                echo "Flutter patch already applied"
+              else
+                echo "Unable to apply Flutter patch cleanly"
+                exit 1
+              fi
               popd
             fi
 
