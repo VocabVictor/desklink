@@ -122,6 +122,7 @@ impl Drop for SimpleCallOnReturn {
 }
 
 pub fn global_init() -> bool {
+    *hbb_common::config::APP_NAME.write().unwrap() = "DeskLink".to_owned();
     #[cfg(target_os = "linux")]
     {
         if !crate::platform::linux::is_x11() {
