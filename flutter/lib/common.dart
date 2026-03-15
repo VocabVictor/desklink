@@ -46,6 +46,8 @@ import 'package:flutter_hbb/utils/http_service.dart' as http;
 
 final globalKey = GlobalKey<NavigatorState>();
 final navigationBarKey = GlobalKey();
+final Set<int> _hiddenSubWindowsByMainToggle = <int>{};
+bool _keepAppAliveWithoutActiveWindows = false;
 
 final isAndroid = isAndroid_;
 final isIOS = isIOS_;
@@ -725,12 +727,14 @@ Future<void> windowOnTop(int? id) async {
   print("Bring window '$id' on top");
   if (id == null) {
     // main window
+    _keepAppAliveWithoutActiveWindows = false;
     if (stateGlobal.isMinimized) {
       await windowManager.restore();
     }
     await windowManager.show();
     await windowManager.focus();
     await rustDeskWinManager.registerActiveWindow(kWindowMainId);
+    await _restoreSubWindowsHiddenWithMainWindow();
   } else {
     WindowController.fromWindowId(id)
       ..focus()
@@ -739,10 +743,45 @@ Future<void> windowOnTop(int? id) async {
   }
 }
 
+Future<void> _hideActiveSubWindowsWithMainWindow() async {
+  final activeSubWindows = rustDeskWinManager
+      .getActiveWindows()
+      .where((windowId) => windowId != kMainWindowId)
+      .toList()
+    ..sort();
+  for (final windowId in activeSubWindows) {
+    try {
+      await rustDeskWinManager.unregisterActiveWindow(windowId);
+      await WindowController.fromWindowId(windowId).hide();
+      _hiddenSubWindowsByMainToggle.add(windowId);
+    } catch (e) {
+      debugPrint("Failed to hide sub window $windowId: $e");
+    }
+  }
+}
+
+Future<void> _restoreSubWindowsHiddenWithMainWindow() async {
+  if (_hiddenSubWindowsByMainToggle.isEmpty) {
+    return;
+  }
+  final windowIds = _hiddenSubWindowsByMainToggle.toList()..sort();
+  _hiddenSubWindowsByMainToggle.clear();
+  for (final windowId in windowIds) {
+    try {
+      await WindowController.fromWindowId(windowId).show();
+      await rustDeskWinManager.registerActiveWindow(windowId);
+    } catch (e) {
+      debugPrint("Failed to restore sub window $windowId: $e");
+    }
+  }
+}
+
 Future<void> hideMainWindow() async {
   if (!isDesktop) {
     return;
   }
+  _keepAppAliveWithoutActiveWindows = true;
+  await _hideActiveSubWindowsWithMainWindow();
   if (rustDeskWinManager.getActiveWindows().contains(kMainWindowId)) {
     await rustDeskWinManager.unregisterActiveWindow(kMainWindowId);
   }
@@ -2690,6 +2729,9 @@ Future<void> onActiveWindowChanged() async {
   print(
       "[MultiWindowHandler] active window changed: ${rustDeskWinManager.getActiveWindows()}");
   if (rustDeskWinManager.getActiveWindows().isEmpty) {
+    if (_keepAppAliveWithoutActiveWindows) {
+      return;
+    }
     // close all sub windows
     try {
       if (isLinux) {
