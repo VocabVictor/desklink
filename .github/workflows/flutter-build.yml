@@ -770,7 +770,9 @@ jobs:
 
       - name: Install Android NDK
         run: |
-          yes | sdkmanager --licenses
+          set +o pipefail
+          yes | sdkmanager --licenses >/dev/null
+          set -o pipefail
           sdkmanager "ndk;${{ env.ANDROID_NDK_PACKAGE }}"
 
       - name: Install flutter
@@ -905,7 +907,7 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          bash ./flutter/ios_arm64.sh
+          bash ./ios_arm64.sh
           pushd flutter
           flutter pub get
           flutter build ios --release --no-codesign
